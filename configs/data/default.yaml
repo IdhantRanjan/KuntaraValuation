@@ -1,0 +1,22 @@
+# ============================================================================
+# Data configuration (canonical paths + IPO universe filters)
+# ============================================================================
+
+universe:
+  csv_path: "data/raw/ipo_master.csv"
+  start_date: "2010-01-01"
+  end_date: "2024-12-31"
+  min_offer_size: 10000000
+  exclude_reits: true
+  exclude_spacs: true
+  exclude_adrs: true
+
+paths:
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  edgar_dir: "data/raw/edgar"
+  text_dir: "data/processed/text"
+  image_dir: "data/processed/images"
+  returns_dir: "data/raw/returns"
+  universe_parquet: "data/processed/ipo_sample/ipo_universe.parquet"
+  image_manifest: "data/processed/images/image_manifest.json"

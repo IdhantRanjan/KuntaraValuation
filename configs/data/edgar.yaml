@@ -1,0 +1,13 @@
+# ============================================================================
+# EDGAR scraper configuration
+# ============================================================================
+
+user_agent: "IPOResearch pukthuanthongk@missouri.edu"
+rate_limit: 0.12
+output_dir: "data/raw/edgar"
+text_output_dir: "data/processed/text"
+filing_types: ["S-1", "S-1/A"]
+sections:
+  - "Risk Factors"
+  - "Business"
+  - "Management's Discussion"

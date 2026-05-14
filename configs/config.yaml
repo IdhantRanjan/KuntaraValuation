@@ -1,0 +1,17 @@
+# ============================================================================
+# Master Configuration — IPO Valuation Multimodal
+# ============================================================================
+defaults:
+  - data: default
+  - model: cross_attention
+  - training: default
+
+project:
+  name: "ipo-valuation-multimodal"
+  seed: 42
+  output_dir: "outputs"
+  log_dir: "outputs/logs"
+  wandb:
+    enabled: false
+    project: "ipo-valuation-multimodal"
+    entity: null

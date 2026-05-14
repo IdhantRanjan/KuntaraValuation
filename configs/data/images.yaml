@@ -1,0 +1,12 @@
+# ============================================================================
+# Image pipeline configuration
+# ============================================================================
+
+edgar_dir: "data/raw/edgar"
+output_dir: "data/processed/images"
+use_clip_zero_shot: true
+filter_threshold: 0.35
+negative_guard: 0.15
+min_size: [150, 150]
+max_per_firm: 16
+max_aspect_ratio: 5.0

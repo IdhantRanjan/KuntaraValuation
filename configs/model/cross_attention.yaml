@@ -1,0 +1,65 @@
+# ============================================================================
+# Cross-Attention Fusion Model Configuration
+# ============================================================================
+
+# ---------- Modality Encoders ----------
+encoders:
+  image:
+    backbone: "ViT-L-14"
+    pretrained: "openai"       # CLIP weights
+    freeze: true
+    embed_dim: 768
+    proj_dim: 256
+  text:
+    backbone: "yiyanghkust/finbert-tone"
+    freeze: true               # Freeze for small-sample regime (49 train)
+    fine_tune_lr: 1.0e-5
+    max_length: 512
+    pool_strategy: "cls"       # "cls" | "mean"
+    embed_dim: 768
+    proj_dim: 256
+  tabular:
+    input_dim: null            # Set at runtime from feature count
+    hidden_dims: [256, 256]
+    output_dim: 256
+    activation: "gelu"
+    dropout: 0.1
+    use_layernorm: true
+
+# ---------- Image Attention Pooling ----------
+image_pooling:
+  method: "attention"          # "attention" | "mean" | "max"
+  attn_hidden: 128
+
+# ---------- Fusion ----------
+fusion:
+  strategy: "cross_attention"  # "late" | "gated" | "cross_attention"
+  # Cross-attention specific
+  transformer:
+    n_layers: 3
+    n_heads: 4
+    d_model: 256
+    d_ff: 512
+    dropout: 0.1
+    use_fuse_token: true
+  # Gated fusion specific
+  gated:
+    gate_hidden: 64
+
+# ---------- Prediction Heads ----------
+heads:
+  underpricing:
+    hidden_dim: 128
+    dropout: 0.2
+    loss: "mse"
+    loss_weight: 1.0
+  broken_ipo:
+    hidden_dim: 128
+    dropout: 0.2
+    loss: "bce"
+    loss_weight: 0.5
+  volatility:
+    hidden_dim: 128
+    dropout: 0.2
+    loss: "mse"
+    loss_weight: 0.3

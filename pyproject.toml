@@ -1,0 +1,101 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ipo-valuation-multimodal"
+version = "0.1.0"
+description = "Multimodal Image-Text-Tabular Models for IPO and Private Firm Valuation"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "Kuntara Research"},
+]
+
+dependencies = [
+    # Core
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "pyarrow>=14.0",
+    "scipy>=1.12",
+    "tqdm>=4.66",
+
+    # NLP
+    "transformers>=4.36",
+    "tokenizers>=0.15",
+    "sentencepiece>=0.1.99",
+
+    # Computer Vision
+    "torch>=2.1",
+    "torchvision>=0.16",
+    "open-clip-torch>=2.24",
+    "Pillow>=10.1",
+
+    # Training
+    "pytorch-lightning>=2.1",
+    "accelerate>=0.25",
+
+    # Tabular ML / Baselines
+    "lightgbm>=4.2",
+    "xgboost>=2.0",
+    "scikit-learn>=1.4",
+
+    # Evaluation & Statistics
+    "statsmodels>=0.14",
+
+    # Visualization
+    "matplotlib>=3.8",
+    "seaborn>=0.13",
+    "plotly>=5.18",
+
+    # Web Scraping & Data Collection
+    "requests>=2.31",
+    "beautifulsoup4>=4.12",
+    "lxml>=4.9",
+    "sec-edgar-downloader>=5.0",
+    "imagehash>=4.3",       # perceptual hashing for image deduplication
+
+    # Interpretability
+    "shap>=0.44",
+    "captum>=0.7",
+
+    # Config
+    "omegaconf>=2.3",
+    "hydra-core>=1.3",
+
+    # Utilities
+    "rich>=13.7",
+    "wandb>=0.16",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "ruff>=0.1",
+    "mypy>=1.8",
+    "pre-commit>=3.6",
+    "ipykernel>=6.27",
+    "jupyter>=1.0",
+]
+
+[project.scripts]
+ipo-train = "src.training.trainer:main"
+ipo-eval = "src.evaluation.run_eval:main"
+ipo-scrape = "src.data.edgar_scraper:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*", "configs*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"

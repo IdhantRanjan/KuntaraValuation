@@ -1,0 +1,54 @@
+# Data (large files)
+data/raw/
+data/processed/
+data/images/
+data/embeddings/
+
+# Outputs
+outputs/
+*.ckpt
+*.pt
+*.pth
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Weights & Biases
+wandb/
+
+# Secrets
+.env
+
+# Claude artifacts
+.claude/
+CLAUDE_CONTEXT.md
+CLAUDE_SUPERPROMPT.txt
+OVERNIGHT_REPORT.md
+
+# Logs
+logs/
+
+# Misc
+*.zip
+*.log
