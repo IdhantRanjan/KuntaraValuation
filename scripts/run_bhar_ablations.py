@@ -73,7 +73,9 @@ def run_horizon(
         return None
 
     df = df_orig[df_orig[col].notna()].copy()
-    # rename so dataset loader treats it as the underpricing target
+    # drop original first_day_return if present, then rename BHAR col to it
+    if "first_day_return" in df.columns:
+        df = df.drop(columns=["first_day_return"])
     df = df.rename(columns={col: "first_day_return"})
 
     train, val, test = time_split(df)
