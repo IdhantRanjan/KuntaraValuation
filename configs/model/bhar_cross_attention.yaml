@@ -1,0 +1,63 @@
+# ============================================================================
+# BHAR Multi-Horizon Configuration
+# Extends cross_attention.yaml for long-run return prediction
+# ============================================================================
+
+encoders:
+  image:
+    backbone: "ViT-L-14"
+    pretrained: "openai"
+    freeze: true
+    embed_dim: 768
+    proj_dim: 256
+  text:
+    backbone: "yiyanghkust/finbert-tone"
+    freeze: true
+    fine_tune_lr: 1.0e-5
+    max_length: 512
+    pool_strategy: "cls"
+    embed_dim: 768
+    proj_dim: 256
+  tabular:
+    input_dim: null
+    hidden_dims: [256, 256]
+    output_dim: 256
+    activation: "gelu"
+    dropout: 0.1
+    use_layernorm: true
+
+image_pooling:
+  method: "attention"
+  attn_hidden: 128
+
+fusion:
+  strategy: "cross_attention"
+  transformer:
+    n_layers: 3
+    n_heads: 4
+    d_model: 256
+    d_ff: 512
+    dropout: 0.1
+    use_fuse_token: true
+  gated:
+    gate_hidden: 64
+
+# For BHAR models, we train a separate model per horizon (simpler than
+# multi-output). The "underpricing" head output maps to the BHAR target
+# for that horizon. broken_ipo and volatility heads are disabled.
+heads:
+  underpricing:
+    hidden_dim: 128
+    dropout: 0.2
+    loss: "mse"
+    loss_weight: 1.0
+  broken_ipo:
+    hidden_dim: 128
+    dropout: 0.2
+    loss: "bce"
+    loss_weight: 0.0
+  volatility:
+    hidden_dim: 128
+    dropout: 0.2
+    loss: "mse"
+    loss_weight: 0.0
