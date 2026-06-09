@@ -712,6 +712,126 @@ def run_verification(
 
 
 # ---------------------------------------------------------------------------
+# CRSP BHAR rebuild
+# ---------------------------------------------------------------------------
+
+def _load_crsp_crosswalk() -> pd.DataFrame | None:
+    """
+    Load a PERMNO→CIK crosswalk from one of two places:
+      1. data/raw/crsp/cik_permno.csv  (columns: permno, cik)
+      2. data/raw/crsp/firm_returns.csv already contains a 'cik' column
+
+    Returns a DataFrame with columns [permno, cik], or None if neither source
+    is available (caller should fall back to pre-computed parquets).
+    """
+    crosswalk_path = ROOT / "data/raw/crsp/cik_permno.csv"
+    if crosswalk_path.exists():
+        xw = pd.read_csv(crosswalk_path, dtype={"permno": int, "cik": str})
+        xw["cik"] = xw["cik"].str.lstrip("0")
+        logger.info("Crosswalk loaded from cik_permno.csv: %d rows", len(xw))
+        return xw[["permno", "cik"]].drop_duplicates("permno")
+
+    firm_path = ROOT / "data/raw/crsp/firm_returns.csv"
+    if firm_path.exists():
+        cols = pd.read_csv(firm_path, nrows=0).columns.tolist()
+        if "cik" in cols:
+            xw = pd.read_csv(firm_path, usecols=["permno", "cik"],
+                             dtype={"permno": int, "cik": str})
+            xw["cik"] = xw["cik"].str.lstrip("0")
+            xw = xw.drop_duplicates("permno")
+            logger.info("Crosswalk extracted from firm_returns.csv: %d unique PERMNOs", len(xw))
+            return xw[["permno", "cik"]]
+
+    logger.warning("No PERMNO→CIK crosswalk found (checked cik_permno.csv and firm_returns.csv 'cik' column)")
+    return None
+
+
+def _rebuild_bhar_from_crsp(
+    base_mm: pd.DataFrame,
+    base_full: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Replace bhar_* columns in the universe DataFrames using CRSP inputs.
+
+    Reads:
+      data/raw/crsp/firm_returns.csv   [permno, date, ret]
+      data/raw/crsp/market.csv         [date, vwretd]
+      data/raw/crsp/delisting.csv      [permno, delist_date, delist_ret]  (optional)
+
+    Falls back to the original DataFrames unchanged if the crosswalk cannot be
+    resolved.  All changes are saved back to the parquet files so a subsequent
+    run doesn't have to rebuild.
+    """
+    from src.data.bhar import build_bhar_panel
+
+    firm_path = ROOT / "data/raw/crsp/firm_returns.csv"
+    mkt_path  = ROOT / "data/raw/crsp/market.csv"
+    delist_path = ROOT / "data/raw/crsp/delisting.csv"
+
+    logger.info("Loading CRSP firm returns ...")
+    firm_ret = pd.read_csv(firm_path, parse_dates=["date"],
+                           dtype={"permno": int, "ret": float})
+    firm_ret = firm_ret[["permno", "date", "ret"]].dropna(subset=["ret"])
+
+    logger.info("Loading CRSP market returns ...")
+    mkt = pd.read_csv(mkt_path, parse_dates=["date"])
+    mkt_col = "vwretd" if "vwretd" in mkt.columns else mkt.columns[-1]
+    mkt = mkt.rename(columns={mkt_col: "vwretd"})[["date", "vwretd"]].dropna()
+
+    delist = None
+    if delist_path.exists():
+        logger.info("Loading CRSP delisting returns ...")
+        delist = pd.read_csv(delist_path, parse_dates=["delist_date"],
+                             dtype={"permno": int, "delist_ret": float})
+
+    crosswalk = _load_crsp_crosswalk()
+    if crosswalk is None:
+        logger.error("Cannot rebuild BHAR from CRSP — no PERMNO→CIK crosswalk. Falling back to parquet BHARs.")
+        return base_mm, base_full
+
+    logger.info("Building BHAR panel for %d PERMNOs ...", firm_ret["permno"].nunique())
+    panel = build_bhar_panel(firm_ret, mkt, delist)
+
+    panel_wide = (
+        panel[panel["status"].isin(["complete", "delisted"]) & panel["bhar"].notna()]
+        .pivot(index="permno", columns="horizon_months", values="bhar")
+        .rename(columns={3: "bhar_3m", 6: "bhar_6m", 12: "bhar_12m", 24: "bhar_24m"})
+        .reset_index()
+    )
+
+    panel_wide = panel_wide.merge(crosswalk, on="permno", how="left")
+    missing_cik = panel_wide["cik"].isna().sum()
+    if missing_cik:
+        logger.warning("%d PERMNOs have no CIK match — they will be excluded", missing_cik)
+    panel_wide = panel_wide.dropna(subset=["cik"])
+    panel_wide["cik"] = panel_wide["cik"].astype(str).str.lstrip("0")
+
+    bhar_cols = ["bhar_3m", "bhar_6m", "bhar_12m", "bhar_24m"]
+
+    def _replace_bhars(df: pd.DataFrame) -> pd.DataFrame:
+        df = df.copy()
+        df["cik"] = df["cik"].astype(str).str.lstrip("0")
+        df = df.drop(columns=[c for c in bhar_cols if c in df.columns])
+        df = df.merge(panel_wide[["cik"] + bhar_cols], on="cik", how="left")
+        n_matched = df[bhar_cols[0]].notna().sum()
+        n_total = len(df)
+        logger.info("CRSP BHARs merged: %d/%d firms matched", n_matched, n_total)
+        return df
+
+    mm_new   = _replace_bhars(base_mm)
+    full_new = _replace_bhars(base_full)
+
+    mm_new.to_parquet(OUT / "multimodal_sample_bhar.parquet", index=False)
+    full_new.to_parquet(OUT / "full_sample_bhar.parquet", index=False)
+    logger.info("Saved CRSP-backed BHAR parquet files (replaces yfinance/SPY proxy)")
+
+    panel.to_parquet(OUT / "bhar_panel.parquet", index=False)
+    logger.info("Saved full CRSP BHAR panel: %d rows", len(panel))
+
+    return mm_new, full_new
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -720,12 +840,14 @@ def main() -> None:
     mm_df   = pd.read_parquet(OUT / "multimodal_sample_bhar.parquet")
     full_df = pd.read_parquet(OUT / "full_sample_bhar.parquet")
 
+    if USING_CRSP:
+        logger.info("CRSP files detected — rebuilding BHAR panels from raw CRSP data ...")
+        mm_df, full_df = _rebuild_bhar_from_crsp(mm_df, full_df)
+    else:
+        logger.info("Using pre-computed BHAR values (yfinance/SPY proxy)")
+
     all_ciks = list(set(mm_df["cik"].astype(str).tolist() + full_df["cik"].astype(str).tolist()))
     logger.info("Total unique CIKs: %d", len(all_ciks))
-
-    # Step 4: CRSP auto-switch (already logged at module load)
-    # The BHAR values in the parquet are from the previous pipeline run.
-    # We use them as-is; CRSP auto-switch applies to future recomputation.
 
     # Pre-compute embeddings
     embeddings = precompute_embeddings(all_ciks)
