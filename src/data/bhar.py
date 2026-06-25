@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 TRADING_DAYS_PER_MONTH = 21
 HORIZONS_MONTHS = (3, 6, 12, 24)
+ROWS_PER_MONTH = {"daily": TRADING_DAYS_PER_MONTH, "monthly": 1}
 
 
 @dataclass
@@ -31,12 +32,25 @@ class HorizonResult:
     bhar: float | None
     firm_bhr: float | None
     market_bhr: float | None
-    n_days: int
+    n_periods: int
     status: str  # complete | delisted | insufficient | missing
 
 
-def _window_days(horizon_months: int) -> int:
-    return horizon_months * TRADING_DAYS_PER_MONTH
+def _window_rows(horizon_months: int, freq: str = "daily") -> int:
+    if freq not in ROWS_PER_MONTH:
+        raise ValueError(f"freq must be one of {list(ROWS_PER_MONTH)}, got {freq!r}")
+    return horizon_months * ROWS_PER_MONTH[freq]
+
+
+def _infer_freq(firm_daily: pd.DataFrame) -> str:
+    """Infer daily vs monthly from the median gap between consecutive return dates."""
+    if len(firm_daily) < 2:
+        return "daily"
+    diffs = firm_daily["date"].sort_values().diff().dropna()
+    if diffs.empty:
+        return "daily"
+    median_gap_days = diffs.dt.days.median()
+    return "monthly" if median_gap_days >= 20 else "daily"
 
 
 def buy_and_hold(returns: np.ndarray) -> float:
@@ -50,6 +64,7 @@ def compute_firm_bhar(
     delist: pd.Series | None,
     horizon_months: int,
     min_coverage: float = 0.5,
+    freq: str | None = None,
 ) -> HorizonResult:
     """
     BHAR for one firm at one horizon.
@@ -67,13 +82,15 @@ def compute_firm_bhar(
     (often negative) return rather than being dropped.
     """
     permno = int(firm_daily["permno"].iloc[0]) if "permno" in firm_daily and len(firm_daily) else -1
-    target_days = _window_days(horizon_months)
 
     if firm_daily.empty:
         return HorizonResult(permno, horizon_months, None, None, None, 0, "missing")
 
     fd = firm_daily.sort_values("date").reset_index(drop=True)
-    window = fd.iloc[:target_days].copy()
+    if freq is None:
+        freq = _infer_freq(fd)
+    target_rows = _window_rows(horizon_months, freq)
+    window = fd.iloc[:target_rows].copy()
 
     delisted_in_window = False
     if delist is not None and pd.notna(delist.get("delist_date")):
@@ -89,7 +106,7 @@ def compute_firm_bhar(
                 )
             delisted_in_window = True
 
-    coverage = len(window) / target_days if target_days else 0.0
+    coverage = len(window) / target_rows if target_rows else 0.0
     if not delisted_in_window and coverage < min_coverage:
         return HorizonResult(permno, horizon_months, None, None, None, len(window), "insufficient")
 
@@ -105,7 +122,7 @@ def compute_firm_bhar(
         bhar=bhar,
         firm_bhr=firm_bhr,
         market_bhr=market_bhr,
-        n_days=len(window),
+        n_periods=len(window),
         status="delisted" if delisted_in_window else "complete",
     )
 
@@ -116,6 +133,7 @@ def build_bhar_panel(
     delist_table: pd.DataFrame | None = None,
     horizons: tuple[int, ...] = HORIZONS_MONTHS,
     min_coverage: float = 0.5,
+    freq: str | None = None,
 ) -> pd.DataFrame:
     """
     Build the firm x horizon BHAR panel.
@@ -131,6 +149,13 @@ def build_bhar_panel(
     else:
         delist_idx = None
 
+    inferred_freq = freq
+    if inferred_freq is None and not returns_long.empty:
+        first_permno = returns_long["permno"].iloc[0]
+        inferred_freq = _infer_freq(returns_long[returns_long["permno"] == first_permno])
+        logger.info("inferred return frequency: %s (%d rows per month)",
+                    inferred_freq, ROWS_PER_MONTH[inferred_freq])
+
     rows: list[HorizonResult] = []
     for permno, firm in returns_long.groupby("permno"):
         firm = firm.assign(permno=permno)
@@ -139,7 +164,8 @@ def build_bhar_panel(
             delist_row = delist_idx.loc[permno]
         for h in horizons:
             rows.append(
-                compute_firm_bhar(firm, market_daily, delist_row, h, min_coverage=min_coverage)
+                compute_firm_bhar(firm, market_daily, delist_row, h,
+                                  min_coverage=min_coverage, freq=inferred_freq)
             )
 
     panel = pd.DataFrame([r.__dict__ for r in rows])
